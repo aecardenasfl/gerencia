@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 from Modelo.Producto import Producto
 from Servicios.ProductoServicio import ProductoServicio
 
+# Antes podía devolver ProductoServicio(); ahora devolvemos el manager
+from Managers.ProductoManager import ProductoManager
+
 # --- Esquema Mínimo para la Solicitud de Ajuste de Stock ---
 # Necesitamos esta clase porque solo queremos el campo 'delta' en el cuerpo
 class SolicitudAjustarStock(BaseModel):
@@ -27,9 +30,8 @@ router = APIRouter(
 )
 
 # Dependencia para obtener la instancia del servicio
-def obtener_servicio_producto() -> ProductoServicio:
-    """Retorna una instancia del servicio de producto."""
-    return ProductoServicio()
+def obtener_servicio_producto():
+    return ProductoManager()
 
 
 # --- Endpoints CRUD ---
