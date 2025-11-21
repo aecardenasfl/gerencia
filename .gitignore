@@ -1,0 +1,9 @@
+# Ignore local config with credentials
+/config/.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Env files
+.env
