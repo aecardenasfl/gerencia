@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from Modelo.Producto import Producto
 from Servicios.ProductoServicio import ProductoServicio
 
-# Antes podía devolver ProductoServicio(); ahora devolvemos el manager
 from Managers.ProductoManager import ProductoManager
 
 # --- Esquema Mínimo para la Solicitud de Ajuste de Stock ---
@@ -29,8 +28,8 @@ router = APIRouter(
     tags=["productos"],
 )
 
-# Dependencia para obtener la instancia del servicio
-def obtener_servicio_producto():
+def obtener_servicio_producto() -> ProductoManager:
+    # Antes devolvía ProductoServicio(); ahora devolvemos el manager
     return ProductoManager()
 
 
