@@ -53,9 +53,7 @@ class PedidoServicio:
         return self.pedido_dao.get_by_id(pedido_id)
 
 
-__all__ = ["PedidoServicio"]
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+
 
 class PedidoService:
     pass

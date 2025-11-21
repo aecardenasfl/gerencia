@@ -89,5 +89,3 @@ class ProductoServicio:
             raise ValueError(f"Producto con id={producto_id} no existe")
         return new_qty
 
-
-__all__ = ["ProductoService"]
