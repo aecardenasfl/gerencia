@@ -2,10 +2,7 @@
 # -*- coding: utf-8 -*-
 """DAO para `Pedido` y `detalle_pedidos`.
 
-Provee creación transaccional de pedidos con líneas (detalle_pedidos).
-La creación verifica stock (usando SELECT ... FOR UPDATE), guarda los precios
-unitarios actuales cuando faltan, inserta filas y ajusta stock dentro de
-la misma transacción.
+Incluye lógica de inicialización segura para crear las tablas una sola vez.
 """
 from typing import Optional, List
 from decimal import Decimal
@@ -17,10 +14,28 @@ from Modelo.Producto import Producto
 from DAOs.DB import get_conn
 
 
+# Bandera de control global para asegurar que las tablas solo se creen una vez
+_TABLAS_PEDIDO_CREADAS = False 
+
+
 class PedidoDAO:
+    
+    # Nuevo constructor para activar la inicialización
+    def __init__(self):
+        # Llama a la inicialización de las tablas al instanciarse
+        self.create_table_if_not_exists() 
+
     def create_table_if_not_exists(self) -> None:
+        """Crea las tablas 'pedidos' y 'detalle_pedidos' si no existen. Solo se ejecuta una vez."""
+        global _TABLAS_PEDIDO_CREADAS
+        
+        # Si ya se ejecutó la creación exitosamente, salimos inmediatamente.
+        if _TABLAS_PEDIDO_CREADAS:
+            return
+            
         with get_conn() as conn:
             with conn.cursor() as cur:
+                # Crear tabla PEDIDOS
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS pedidos (
@@ -31,6 +46,7 @@ class PedidoDAO:
                     )
                     """
                 )
+                # Crear tabla DETALLE_PEDIDOS
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS detalle_pedidos (
@@ -44,16 +60,12 @@ class PedidoDAO:
                     """
                 )
                 conn.commit()
-
+                # Marcar la bandera como True solo si la operación fue exitosa.
+                _TABLAS_PEDIDO_CREADAS = True
+                
     def create(self, pedido: Pedido) -> Pedido:
-        """Crea un pedido con sus líneas de forma transaccional.
-
-        - Verifica stock con SELECT ... FOR UPDATE
-        - Si precio_unitario no está presente en la línea, toma el precio actual
-          del producto y lo guarda en la línea
-        - Inserta `pedidos` y luego `detalle_pedidos`, actualiza stock
-        - Devuelve el pedido con su `id` y las líneas actualizadas (con pedido_id e ids no retornados)
-        """
+        """Crea un pedido con sus líneas de forma transaccional."""
+        # ... (código existente de create) ...
         if not pedido.items:
             raise ValueError("El pedido debe contener al menos un item")
 
@@ -111,6 +123,7 @@ class PedidoDAO:
                 raise
 
     def get_by_id(self, pedido_id: int) -> Optional[Pedido]:
+        # ... (código existente) ...
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM pedidos WHERE id = %s", (pedido_id,))
@@ -137,3 +150,19 @@ class PedidoDAO:
                     total=float(p_row.get('total') or 0),
                 )
                 return pedido
+            
+    def update_estado(self, pedido_id: int, nuevo_estado: str) -> Optional[Pedido]:
+        # ... (código existente) ...
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pedidos SET estado = %s WHERE id = %s RETURNING id",
+                    (nuevo_estado, pedido_id)
+                )
+                row = cur.fetchone()
+                conn.commit()
+                if not row:
+                    return None
+            
+            # Reutiliza el método get_by_id para obtener el objeto completo
+            return self.get_by_id(pedido_id)

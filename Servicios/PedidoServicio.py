@@ -52,6 +52,18 @@ class PedidoServicio:
     def obtener_pedido(self, pedido_id: int) -> Optional[Pedido]:
         return self.pedido_dao.get_by_id(pedido_id)
 
+    def cambiar_estado(self, pedido_id: int, nuevo_estado: str) -> Pedido:
+            """Actualiza solo el estado de un pedido."""
+            if nuevo_estado not in ["pendiente", "confirmado", "enviado", "cancelado"]:
+                raise ValueError(f"Estado '{nuevo_estado}' no es válido.")
+            
+            # 1. Llamar al DAO para cambiar el estado
+            pedido_actualizado = self.pedido_dao.update_estado(pedido_id, nuevo_estado)
+            
+            if pedido_actualizado is None:
+                raise ValueError(f"Pedido con id={pedido_id} no existe")
+                
+            return pedido_actualizado
 
 __all__ = ["PedidoServicio"]
 #!/usr/bin/python

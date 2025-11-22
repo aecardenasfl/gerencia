@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-# Importar el modelo y el servicio (Asegúrate de que estas rutas sean correctas)
+# Importar el modelo y el servicio
 from Modelo.Producto import Producto
 from Servicios.ProductoServicio import ProductoServicio
 
@@ -36,12 +36,12 @@ def obtener_servicio_producto() -> ProductoServicio:
 
 @router.post(
     "/",
-    response_model=Producto, # Usamos tu dataclass directamente como respuesta
+    response_model=Producto, 
     status_code=status.HTTP_201_CREATED,
     summary="Crear un nuevo producto",
 )
 def crear_producto(
-    producto: Producto, # FastAPI mapea JSON de entrada a tu dataclass Producto
+    producto: Producto, # FastAPI mapea JSON de entrada a  dataclass Producto
     servicio: ProductoServicio = Depends(obtener_servicio_producto),
 ):
     """
@@ -60,7 +60,7 @@ def crear_producto(
 
 @router.get(
     "/",
-    response_model=List[Producto], # Usamos tu dataclass para la lista de respuesta
+    response_model=List[Producto], 
     summary="Listar todos los productos",
 )
 def listar_productos(

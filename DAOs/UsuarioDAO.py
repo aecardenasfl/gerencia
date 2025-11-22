@@ -2,19 +2,34 @@
 # -*- coding: utf-8 -*-
 """DAO para la entidad `Usuario`.
 
-Provee operaciones CRUD usando el pool definido en `DAOs.DB`.
-El DTO `Modelo.Usuario.Usuario` se mantiene minimalista y no contiene
-credenciales de acceso.
+Incluye lógica de inicialización segura para crear la tabla una sola vez.
 """
 from typing import Optional, List
 from psycopg2.extras import RealDictCursor
-
 from Modelo.Usuario import Usuario
 from DAOs.DB import get_conn
 
 
+# Bandera de control global para asegurar que la tabla solo se cree una vez
+_TABLA_USUARIO_CREADA = False 
+
+
 class UsuarioDAO:
+    
+    # Nuevo constructor para activar la inicialización
+    def __init__(self):
+        # Al instanciarse el DAO, llama inmediatamente al método de creación de tabla.
+        # Gracias a la bandera, esto solo tendrá un costo real en la primera instancia.
+        self.create_table_if_not_exists() 
+
     def create_table_if_not_exists(self) -> None:
+        """Crea la tabla 'usuarios' si no existe. Solo se ejecuta una vez."""
+        global _TABLA_USUARIO_CREADA
+        
+        # Si ya se ejecutó la creación exitosamente, salimos inmediatamente.
+        if _TABLA_USUARIO_CREADA:
+            return
+            
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -29,8 +44,12 @@ class UsuarioDAO:
                     """
                 )
                 conn.commit()
+                
+                # Marcar la bandera como True solo si la operación fue exitosa.
+                _TABLA_USUARIO_CREADA = True 
 
     def create(self, u: Usuario) -> Usuario:
+        # La tabla ya está garantizada gracias a __init__
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
