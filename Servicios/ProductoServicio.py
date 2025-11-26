@@ -122,7 +122,7 @@ class ProductoServicio:
             cantidad = lectura["cantidad"]
 
             # Actualizar stock en la DB
-            self.producto_dao.adjust_stock(producto_id, cantidad)
+            self.producto_dao.replace_stock(producto_id, cantidad)
             producto = self.producto_dao.get_by_id(producto_id)
 
             # Determinar si se necesita notificación
@@ -144,6 +144,9 @@ class ProductoServicio:
                         mensaje=mensaje,
                         producto_id=producto_id,
                         destinatario_id=admin.id,
+                        leida=False,
                         nivel=nivel
                     )
                     self.notificacion_dao.create(notificacion)
+                    
+                    

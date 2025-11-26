@@ -138,6 +138,14 @@ class ProductoDAO:
                 row = cur.fetchone()
                 conn.commit()
                 return row[0] if row else None
+    def replace_stock(self, producto_id: int, nueva_cantidad: int):
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE productos SET cantidad = %s WHERE id = %s",
+                    (nueva_cantidad, producto_id)
+                )
+                conn.commit()
 
     # ---------------------------------------------------------
     # Conversión

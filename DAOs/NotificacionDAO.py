@@ -52,7 +52,7 @@ class NotificacionDAO:
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (n.tipo, n.mensaje, n.producto_id, n.destinatario_id, n.leida, n.nivel),
+                    (n.tipo, n.mensaje, n.producto_id, n.destinatario_id, bool(n.leida), n.nivel),
                 )
                 new_id = cur.fetchone()[0]
                 conn.commit()
