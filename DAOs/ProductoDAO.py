@@ -8,24 +8,21 @@ from decimal import Decimal
 from psycopg2.extras import RealDictCursor
 
 from Modelo.Producto import Producto
-# SOLO importamos get_conn, ya que get_conn gestiona la conexión del pool
 from DAOs.DB import get_conn 
 
-
-# Bandera de control global para asegurar que la tabla solo se cree una vez
-_TABLA_PRODUCTO_CREADA = False 
+# Control para evitar crear la tabla más de una vez
+_TABLA_PRODUCTO_CREADA = False
 
 
 class ProductoDAO:
-    
-    # Ajustamos el constructor para ser simple y llamar a la inicialización
-    def __init__(self):
-        # La tabla se crea la primera vez que se instancia este DAO.
-        self.create_table_if_not_exists() 
-        # Ya no necesitamos self.pool si solo usamos get_conn()
 
+    def __init__(self):
+        self.create_table_if_not_exists()
+
+    # ---------------------------------------------------------
+    # Crear tabla si no existe (solo una vez)
+    # ---------------------------------------------------------
     def create_table_if_not_exists(self) -> None:
-        """Crea la tabla 'productos' si no existe. Solo se ejecuta una vez."""
         global _TABLA_PRODUCTO_CREADA
         
         if _TABLA_PRODUCTO_CREADA:
@@ -49,8 +46,10 @@ class ProductoDAO:
                 conn.commit()
                 _TABLA_PRODUCTO_CREADA = True
 
+    # ---------------------------------------------------------
+    # CRUD
+    # ---------------------------------------------------------
     def create(self, p: Producto) -> Producto:
-        # ... (código existente) ...
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -67,7 +66,6 @@ class ProductoDAO:
                 return p
 
     def get_by_id(self, producto_id: int) -> Optional[Producto]:
-        # ... (código existente) ...
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM productos WHERE id = %s", (producto_id,))
@@ -77,7 +75,6 @@ class ProductoDAO:
                 return self._row_to_producto(row)
 
     def list_all(self) -> List[Producto]:
-        # ... (código existente) ...
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM productos ORDER BY id")
@@ -85,7 +82,6 @@ class ProductoDAO:
                 return [self._row_to_producto(r) for r in rows]
 
     def update(self, p: Producto) -> Producto:
-        # ... (código existente) ...
         if p.id is None:
             raise ValueError("Producto.id es requerido para actualizar")
         with get_conn() as conn:
@@ -96,21 +92,38 @@ class ProductoDAO:
                     SET nombre = %s, descripcion = %s, precio = %s, cantidad = %s, codigo = %s, activo = %s
                     WHERE id = %s
                     """,
-                    (p.nombre, p.descripcion, Decimal(p.precio), p.cantidad, p.codigo, p.activo, p.id),
+                    (p.nombre, p.descripcion, Decimal(p.precio), p.cantidad,
+                     p.codigo, p.activo, p.id),
                 )
                 conn.commit()
                 return p
 
     def delete(self, producto_id: int) -> None:
-        # ... (código existente) ...
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM productos WHERE id = %s", (producto_id,))
                 conn.commit()
 
+    # ---------------------------------------------------------
+    # Utilidades para PedidoServicio
+    # ---------------------------------------------------------
+    def exists(self, producto_id: int) -> bool:
+        """Retorna True si el producto existe."""
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM productos WHERE id = %s", (producto_id,))
+                return cur.fetchone() is not None
+
+    def get_stock(self, producto_id: int) -> Optional[int]:
+        """Retorna el stock actual, o None si el producto no existe."""
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT cantidad FROM productos WHERE id = %s", (producto_id,))
+                row = cur.fetchone()
+                return row[0] if row else None
+
     def adjust_stock(self, producto_id: int, delta: int) -> Optional[int]:
-        # ... (código existente) ...
-        """Ajusta el stock (cantidad) de un producto y devuelve el nuevo stock."""
+        """Modifica el stock sumando delta (positivo o negativo) y retorna el nuevo stock."""
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -120,18 +133,16 @@ class ProductoDAO:
                     WHERE id = %s
                     RETURNING cantidad
                     """,
-                    (delta, producto_id),
+                    (delta, producto_id)
                 )
                 row = cur.fetchone()
-                if not row:
-                    conn.commit()
-                    return None
-                new_qty = row[0]
                 conn.commit()
-                return int(new_qty)
+                return row[0] if row else None
 
+    # ---------------------------------------------------------
+    # Conversión
+    # ---------------------------------------------------------
     def _row_to_producto(self, row: dict) -> Producto:
-        # ... (código existente) ...
         precio = float(row.get('precio') or 0.0)
         return Producto(
             id=row.get('id'),
