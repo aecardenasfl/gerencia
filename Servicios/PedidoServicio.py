@@ -116,9 +116,16 @@ class PedidoServicio:
         if nuevo_estado not in estados_validos:
             raise ValueError(f"Estado '{nuevo_estado}' no es válido")
 
-        actualizado = self.pedido_dao.update_estado(pedido_id, nuevo_estado)
+        # Actualiza y luego devuelve el pedido completo
+        actualizado_id = self.pedido_dao.update_estado(pedido_id, nuevo_estado)
 
-        if actualizado is None:
+        if actualizado_id is None:
             raise ValueError(f"Pedido con id={pedido_id} no existe")
 
-        return actualizado
+        # Obtener el objeto Pedido actualizado y devolverlo
+        pedido_actualizado = self.pedido_dao.get_by_id(pedido_id)
+        if pedido_actualizado is None:
+            # Esto no debería pasar si update devolvió id, pero por seguridad:
+            raise ValueError(f"Pedido con id={pedido_id} no existe después de la actualización")
+        return pedido_actualizado
+

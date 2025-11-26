@@ -6,6 +6,8 @@ Valida datos del usuario y orquesta llamadas al DAO. No maneja
 credenciales; el modelo de dominio se mantiene minimalista según lo
 solicitado.
 """
+import bcrypt
+
 from typing import Optional, Union
 
 from Modelo.Usuario import Usuario
@@ -27,7 +29,7 @@ class UsuarioServicio:
         if u.rol not in ('user', 'admin'):
             raise ValueError("'rol' inválido")
 
-    def crear_usuario(self, data: Union[Usuario, dict]) -> Usuario:
+    def crear_usuario(self, data: Union[Usuario, dict], password: str = None) -> Usuario:
         u = data if isinstance(data, Usuario) else Usuario(**data)
         self._validate_usuario(u)
 
@@ -36,8 +38,36 @@ class UsuarioServicio:
         if existing is not None:
             raise ValueError("Ya existe un usuario con ese email")
 
+        # Hash de la contraseña si se proporciona
+        if password:
+            u.password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        else:
+            raise ValueError("Se requiere contraseña para crear usuario")
+
         creado = self.dao.create(u)
         return creado
+    
+    def verificar_contraseña(self, email: str, password: str) -> bool:
+        usuario = self.dao.get_by_email(email)
+        if not usuario:
+            return False
+        return bcrypt.checkpw(password.encode("utf-8"), usuario.password_hash.encode("utf-8"))
+
+    def actualizar_contraseña(self, usuario_id: int, nueva_password: str) -> Usuario:
+        """
+        Actualiza la contraseña de un usuario, recalculando el hash.
+        """
+        usuario = self.dao.get_by_id(usuario_id)
+        if not usuario:
+            raise ValueError(f"Usuario id={usuario_id} no existe")
+
+        if not nueva_password or len(nueva_password) < 6:
+            raise ValueError("La contraseña debe tener al menos 6 caracteres")
+
+        # Calcular hash y actualizar
+        usuario.password_hash = bcrypt.hashpw(nueva_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    
+        return self.dao.update(usuario)
 
     def obtener_usuario(self, usuario_id: int) -> Optional[Usuario]:
         return self.dao.get_by_id(usuario_id)

@@ -7,7 +7,7 @@ Implementa el CRUD completo, incluyendo el método PATCH para actualizaciones pa
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 # Importar el modelo y el servicio (Asegúrate de que estas rutas sean correctas)
 from Modelo.Usuario import Usuario
@@ -24,7 +24,10 @@ class UsuarioActualizarParcial(BaseModel):
     email: str | None = Field(default=None, description="Nuevo email del usuario (debe ser único)")
     rol: str | None = Field(default=None, description="Nuevo rol del usuario ('user' o 'admin')")
     activo: bool | None = Field(default=None, description="Estado de actividad del usuario")
+    password: str = Field(..., description="Contraseña en texto plano")
 
+class UsuarioCambiarPassword(BaseModel):
+    nueva_password: str = Field(..., min_length=6, description="Nueva contraseña del usuario")
 
 # --- Instancia del Router y Dependencia del Servicio ---
 
@@ -155,7 +158,27 @@ def actualizar_parcialmente_usuario(
         # Errores de validación (ej. email duplicado)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
-
+@router.patch(
+    "/{usuario_id}/password",
+    summary="Actualizar contraseña de un usuario",
+    status_code=status.HTTP_200_OK,
+)
+def cambiar_password(
+    usuario_id: int,
+    datos: UsuarioCambiarPassword,
+    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+):
+    """
+    Actualiza la contraseña de un usuario específico.
+    """
+    try:
+        usuario_actualizado = servicio.actualizar_contraseña(usuario_id, datos.nueva_password)
+        return {"mensaje": f"Contraseña de usuario {usuario_id} actualizada correctamente"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar contraseña: {e}")
+        
 @router.delete(
     "/{usuario_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -172,3 +195,24 @@ def eliminar_usuario(
     # pero el DAO simplemente ejecuta DELETE. Lo dejamos así por simplicidad.
     servicio.eliminar_usuario(usuario_id)
     return
+
+@router.patch(
+    "/{usuario_id}/password",
+    summary="Actualizar contraseña de un usuario",
+    status_code=status.HTTP_200_OK,
+)
+def cambiar_password(
+    usuario_id: int,
+    datos: UsuarioCambiarPassword,
+    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+):
+    """
+    Actualiza la contraseña de un usuario específico.
+    """
+    try:
+        usuario_actualizado = servicio.actualizar_contraseña(usuario_id, datos.nueva_password)
+        return {"mensaje": f"Contraseña de usuario {usuario_id} actualizada correctamente"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar contraseña: {e}")

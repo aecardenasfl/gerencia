@@ -4,7 +4,10 @@
 from typing import List, Optional, Union
 
 from Modelo.Producto import Producto
+from Modelo.Notificacion import Notificacion
 from DAOs.ProductoDAO import ProductoDAO
+from DAOs.NotificacionDAO import NotificacionDAO
+from DAOs.UsuarioDAO import UsuarioDAO
 
 
 class ProductoServicio:
@@ -15,6 +18,9 @@ class ProductoServicio:
 
     def __init__(self, dao: Optional[ProductoDAO] = None):
         self.dao = dao or ProductoDAO()
+        self.notificacion_dao = NotificacionDAO()
+        self.usuario_dao = UsuarioDAO()
+        self.producto_dao = ProductoDAO()
 
     def _validate_producto(self, p: Producto) -> None:
         if not p.nombre or not p.nombre.strip():
@@ -102,3 +108,42 @@ class ProductoServicio:
             raise ValueError(f"Producto con id={producto_id} no existe")
 
         return new_qty
+    
+    def procesar_lecturas_sensor(self, lecturas: list):
+        """
+        Procesa las lecturas de los sensores y actualiza el stock de cada producto.
+        Crea notificaciones para administradores si el stock es bajo o agotado.
+        """
+        # Traer administradores una sola vez
+        admins = self.usuario_dao.get_usuarios_por_rol("admin")
+
+        for lectura in lecturas:
+            producto_id = lectura["producto_id"]
+            cantidad = lectura["cantidad"]
+
+            # Actualizar stock en la DB
+            self.producto_dao.adjust_stock(producto_id, cantidad)
+            producto = self.producto_dao.get_by_id(producto_id)
+
+            # Determinar si se necesita notificación
+            mensaje = None
+            nivel = "info"
+
+            if producto.cantidad == 0:
+                mensaje = f"Stock agotado: Producto {producto_id} está sin stock"
+                nivel = "error"
+            elif producto.cantidad <= 10:
+                mensaje = f"Stock bajo: Producto {producto_id} tiene {producto.cantidad} unidades"
+                nivel = "warning"
+
+            # Crear notificaciones para todos los administradores
+            if mensaje:
+                for admin in admins:
+                    notificacion = Notificacion(
+                        tipo="inventario",
+                        mensaje=mensaje,
+                        producto_id=producto_id,
+                        destinatario_id=admin.id,
+                        nivel=nivel
+                    )
+                    self.notificacion_dao.create(notificacion)

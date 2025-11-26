@@ -49,16 +49,15 @@ class UsuarioDAO:
                 _TABLA_USUARIO_CREADA = True 
 
     def create(self, u: Usuario) -> Usuario:
-        # La tabla ya está garantizada gracias a __init__
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO usuarios (nombre, email, rol, activo)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO usuarios (nombre, email, rol, activo, password_hash)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (u.nombre, u.email, u.rol, u.activo),
+                    (u.nombre, u.email, u.rol, u.activo, u.password_hash),
                 )
                 new_id = cur.fetchone()[0]
                 conn.commit()
@@ -118,5 +117,23 @@ class UsuarioDAO:
             nombre=row.get('nombre') or '',
             email=row.get('email') or '',
             rol=row.get('rol') or 'user',
-            activo=row.get('activo') if 'activo' in row else True,
+            activo=row.get('activo', True),
         )
+
+    def get_usuarios_por_rol(self, rol: str) -> List[Usuario]:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, nombre, email, rol, activo FROM usuarios WHERE rol = %s ORDER BY id",
+                    (rol,)
+                )
+                rows = cur.fetchall()
+                return [self._row_to_usuario(r) for r in rows]
+    
+    def list_activos(self) -> List[Usuario]:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id, nombre, email, rol, activo FROM usuarios WHERE activo = TRUE ORDER BY id")
+                rows = cur.fetchall()
+                return [self._row_to_usuario(r) for r in rows]
+

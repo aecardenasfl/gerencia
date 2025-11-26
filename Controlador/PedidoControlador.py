@@ -5,7 +5,6 @@
 Implementa la creación transaccional y la consulta.
 """
 from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -83,10 +82,36 @@ def obtener_pedido(
         )
     return pedido
 
+@router.get(
+    "/usuario/{usuario_id}",
+    response_model=List[Pedido],
+    summary="Listar pedidos por usuario",
+)
+def listar_pedidos_por_usuario(
+    usuario_id: int,
+    servicio: PedidoServicio = Depends(obtener_servicio_pedido),
+):
+    """
+    Devuelve la lista de pedidos (con sus líneas) del usuario indicado.
+
+    Ejemplo de uso:
+        GET /pedidos/usuario/7
+    """
+    try:
+        pedidos = servicio.listar_pedidos_usuario(usuario_id)
+        return pedidos
+    except ValueError as e:
+        detail = str(e)
+        if "no existe" in detail:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 
 # NOTA: La listado de todos los pedidos (GET /) se omite por la complejidad de 
-# traer todos los detalles de todos los pedidos. Si se implementa, 
-# se recomienda crear un GET sin items (GET /pedidos?resumen=true).
+# traer todos los detalles de todos los pedidos.
 
 # --- Endpoint de Negocio: Actualización de Estado (PATCH) ---
 
@@ -102,6 +127,8 @@ def cambiar_estado_pedido(
 ):
     """
     Actualiza el campo 'estado' de un pedido.
+    estados_validos = ["pendiente", "confirmado", "enviado", "cancelado"]
+
     """
     try:
         # Se asume que el servicio implementará un método cambiar_estado

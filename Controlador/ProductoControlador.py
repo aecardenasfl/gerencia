@@ -49,7 +49,7 @@ def crear_producto(
     """
     try:
         # Llama al servicio con el objeto Producto
-        producto_creado = servicio.create_product(producto)
+        producto_creado = servicio.crear_producto(producto)
         return producto_creado
     except ValueError as e:
         # Manejo de errores de validación del servicio
@@ -69,7 +69,7 @@ def listar_productos(
     """
     Retorna la lista de todos los productos disponibles.
     """
-    return servicio.list_products()
+    return servicio.listar_productos()
 
 
 @router.get(
@@ -84,7 +84,7 @@ def obtener_producto(
     """
     Retorna los detalles de un producto específico por su ID.
     """
-    producto = servicio.get_product(producto_id)
+    producto = servicio.obtener_producto(producto_id)
     if producto is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -109,7 +109,7 @@ def actualizar_producto(
     try:
         # Aseguramos que el ID en el objeto de entrada coincida con el ID de la ruta
         datos_producto.id = producto_id
-        producto_actualizado = servicio.update_product(producto_id, datos_producto)
+        producto_actualizado = servicio.actualizar_producto(producto_id, datos_producto)
         return producto_actualizado
     except ValueError as e:
         detail = str(e)
@@ -130,7 +130,7 @@ def eliminar_producto(
     """
     Elimina un producto por su ID.
     """
-    servicio.delete_product(producto_id)
+    servicio.eliminar_producto(producto_id)
     return
 
 
@@ -151,7 +151,7 @@ def ajustar_stock_producto(
     Retorna el nuevo valor de stock.
     """
     try:
-        nueva_cantidad = servicio.adjust_stock(producto_id, solicitud.delta)
+        nueva_cantidad = servicio.ajustar_stock(producto_id, solicitud.delta)
         return nueva_cantidad
     except ValueError as e:
         detail = str(e)

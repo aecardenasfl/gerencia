@@ -3,3 +3,6 @@ redis
 types-redis
 uvicorn
 psycopg2-binary
+python-dotenv
+bcrypt
+paho-mqtt

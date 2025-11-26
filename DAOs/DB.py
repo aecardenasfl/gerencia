@@ -13,6 +13,7 @@ from pathlib import Path
 import threading
 from contextlib import contextmanager
 from typing import Optional
+from config.config_loader import Config
 
 import psycopg2
 from psycopg2 import sql
@@ -27,67 +28,49 @@ _schema: Optional[str] = None
 
 
 def _create_pool(minconn: int = 1, maxconn: int = 5) -> SimpleConnectionPool:
-    # Leer exclusivamente desde config/.env. No usar variables de entorno como fallback.
-    env_path = Path(__file__).resolve().parents[1] / 'config' / '.env'
-    if not env_path.exists():
-        raise RuntimeError(
-            f"Archivo de configuración requerido no encontrado: {env_path}. "
-            "Crea `config/.env` con las credenciales de la base de datos."
-        )
+    # Primero, intentamos DSN si está disponible
+    dsn = Config.POSTGRES_DSN
 
-    cfg: dict = {}
-    with env_path.open('r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if '=' not in line:
-                continue
-            k, v = line.split('=', 1)
-            k = k.strip()
-            v = v.strip().strip('"').strip("'")
-            if k:
-                cfg[k] = v
-
-    # Si se define POSTGRES_DSN en el archivo de config, usarlo.
-    dsn = cfg.get('POSTGRES_DSN')
-    # establecer schema global si está presente en el archivo de config
     global _schema
-    _schema = cfg.get('PGSCHEMA') or None
+    _schema = Config.PGSCHEMA or None
 
     if dsn:
         pool = SimpleConnectionPool(minconn, maxconn, dsn=dsn)
     else:
-        # Requerir las claves necesarias en el archivo de config
-        required = ('PGHOST', 'PGPORT', 'PGUSER', 'PGPASSWORD', 'PGDATABASE')
-        missing = [k for k in required if k not in cfg or not cfg[k]]
-        if missing:
+        required = (
+            Config.PGHOST,
+            Config.PGPORT,
+            Config.PGUSER,
+            Config.PGPASSWORD,
+            Config.PGDATABASE,
+        )
+
+        if any(v is None for v in required):
             raise RuntimeError(
-                f"Faltan claves en {env_path}: {', '.join(missing)}. "
-                "Asegúrate de que el archivo contenga PGHOST, PGPORT, PGUSER, PGPASSWORD y PGDATABASE."
+                "Faltan variables de entorno en config/.env para la conexión a PostgreSQL"
             )
 
         params = {
-            'host': cfg['PGHOST'],
-            'port': int(cfg['PGPORT']),
-            'user': cfg['PGUSER'],
-            'password': cfg['PGPASSWORD'],
-            'dbname': cfg['PGDATABASE'],
+            'host': Config.PGHOST,
+            'port': int(Config.PGPORT),
+            'user': Config.PGUSER,
+            'password': Config.PGPASSWORD,
+            'dbname': Config.PGDATABASE,
         }
         pool = SimpleConnectionPool(minconn, maxconn, **params)
 
-    # Si se indicó un schema, crear el schema en la BD si no existe.
+    # Crear schema si aplica
     if _schema:
         conn = pool.getconn()
         try:
             with conn.cursor() as cur:
-                cur.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {};").format(sql.Identifier(_schema)))
+                cur.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {};")
+                    .format(sql.Identifier(_schema))
+                )
                 conn.commit()
-        except Exception:
-            # Si no se puede crear el schema, devolver la conexión y re-raise
+        finally:
             pool.putconn(conn)
-            raise
-        pool.putconn(conn)
 
     return pool
 
