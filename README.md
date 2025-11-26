@@ -91,3 +91,17 @@ docker run -d --name mosquitto \
   -v $(pwd)/mosquitto/log:/mosquitto/log \
   eclipse-mosquitto:2.0
 ```
+
+### Formato JSON que debe recibir el broker: 
+
+```JSON
+{
+  "timestamp": "2025-11-26T14:05:00Z",
+  "lecturas": [
+    {"sensor_id": "sensor_01", "producto_id": 1, "cantidad": 12},
+    {"sensor_id": "sensor_02", "producto_id": 2, "cantidad": 8},
+    {"sensor_id": "sensor_03", "producto_id": 3, "cantidad": 5},
+    {"sensor_id": "sensor_04", "producto_id": 4, "cantidad": 20}
+  ]
+}
+```
