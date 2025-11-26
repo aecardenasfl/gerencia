@@ -4,5 +4,6 @@ types-redis
 uvicorn
 psycopg2-binary
 python-dotenv
+email-validator
 bcrypt
 paho-mqtt

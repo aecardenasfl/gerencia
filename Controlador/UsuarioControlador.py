@@ -24,10 +24,29 @@ class UsuarioActualizarParcial(BaseModel):
     email: str | None = Field(default=None, description="Nuevo email del usuario (debe ser único)")
     rol: str | None = Field(default=None, description="Nuevo rol del usuario ('user' o 'admin')")
     activo: bool | None = Field(default=None, description="Estado de actividad del usuario")
-    password: str = Field(..., description="Contraseña en texto plano")
 
 class UsuarioCambiarPassword(BaseModel):
     nueva_password: str = Field(..., min_length=6, description="Nueva contraseña del usuario")
+
+class UsuarioCrear(BaseModel):
+    nombre: str
+    email: str
+    rol: str
+    activo: bool = True
+    password: str
+class UsuarioRespuesta(BaseModel):
+    id: int
+    nombre: str
+    email: str
+    rol: str
+    activo: bool
+
+    class Config:
+        orm_mode = True
+
+class UsuarioLogin(BaseModel):
+    email: EmailStr
+    password: str
 
 # --- Instancia del Router y Dependencia del Servicio ---
 
@@ -35,6 +54,7 @@ router = APIRouter(
     prefix="/usuarios",
     tags=["usuarios"],
 )
+
 
 # Dependencia para obtener la instancia del servicio
 def obtener_servicio_usuario() -> UsuarioServicio:
@@ -44,27 +64,27 @@ def obtener_servicio_usuario() -> UsuarioServicio:
 
 # --- Endpoints CRUD ---
 
-@router.post(
-    "/",
-    response_model=Usuario, 
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear un nuevo usuario",
-)
+@router.post("/", response_model=UsuarioRespuesta)
 def crear_usuario(
-    usuario: Usuario, # Usa tu dataclass para la entrada
+    usuario: UsuarioCrear,
     servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
 ):
-    """
-    Crea un nuevo usuario en la base de datos.
-    """
     try:
-        usuario_creado = servicio.crear_usuario(usuario)
+        # convertir datos excepto el password
+        datos = usuario.dict()
+        password = datos.pop("password")
+
+        usuario_creado = servicio.crear_usuario(datos, password)
         return usuario_creado
+
     except ValueError as e:
-        # Errores de validación (email ya existe, rol inválido, etc.)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al crear usuario: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al crear usuario: {e}"
+        )
 
 
 @router.get(
@@ -80,6 +100,33 @@ def listar_usuarios(
     """
     return servicio.listar_usuarios()
 
+@router.post(
+    "/login",
+    summary="Autenticar usuario",
+    status_code=status.HTTP_200_OK
+)
+def login(
+    credenciales: UsuarioLogin,
+    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+):
+    """
+    Verifica email y contraseña.
+    """
+    if not servicio.verificar_contraseña(credenciales.email, credenciales.password):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    # Obtener usuario para retornar información útil
+    usuario = servicio.dao.get_by_email(credenciales.email)
+
+    return {
+        "mensaje": "Login exitoso",
+        "usuario": {
+            "id": usuario.id,
+            "nombre": usuario.nombre,
+            "email": usuario.email,
+            "rol": usuario.rol
+        }
+    }
 
 @router.get(
     "/{usuario_id}",
@@ -195,24 +242,3 @@ def eliminar_usuario(
     # pero el DAO simplemente ejecuta DELETE. Lo dejamos así por simplicidad.
     servicio.eliminar_usuario(usuario_id)
     return
-
-@router.patch(
-    "/{usuario_id}/password",
-    summary="Actualizar contraseña de un usuario",
-    status_code=status.HTTP_200_OK,
-)
-def cambiar_password(
-    usuario_id: int,
-    datos: UsuarioCambiarPassword,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
-):
-    """
-    Actualiza la contraseña de un usuario específico.
-    """
-    try:
-        usuario_actualizado = servicio.actualizar_contraseña(usuario_id, datos.nueva_password)
-        return {"mensaje": f"Contraseña de usuario {usuario_id} actualizada correctamente"}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar contraseña: {e}")

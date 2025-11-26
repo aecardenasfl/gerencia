@@ -33,19 +33,22 @@ class UsuarioServicio:
         u = data if isinstance(data, Usuario) else Usuario(**data)
         self._validate_usuario(u)
 
-        # verificar unicidad de email
+        # validar unicidad del email
         existing = self.dao.get_by_email(u.email)
         if existing is not None:
             raise ValueError("Ya existe un usuario con ese email")
 
-        # Hash de la contraseña si se proporciona
-        if password:
-            u.password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        else:
+        # Hash de la contraseña
+        if not password:
             raise ValueError("Se requiere contraseña para crear usuario")
 
-        creado = self.dao.create(u)
-        return creado
+        u.password_hash = bcrypt.hashpw(
+            password.encode("utf-8"), 
+            bcrypt.gensalt()
+        ).decode("utf-8")
+
+        return self.dao.create(u)
+
     
     def verificar_contraseña(self, email: str, password: str) -> bool:
         usuario = self.dao.get_by_email(email)
