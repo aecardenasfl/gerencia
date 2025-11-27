@@ -76,21 +76,48 @@ docker run -d --name postgres_ejemplo \
   -p 5432:5432 \
   postgres:15
 ```
-## MQTT (Mosquitto)
+## 🛰️ MQTT (Mosquitto)
+El proyecto utiliza **Mosquitto** como broker MQTT para recibir las lecturas enviadas por los sensores. El topic utilizado por los sensores es `sensores/#`. Este proyecto incluye su propia configuración de Mosquitto dentro de la carpeta `MQTT/`, que debe tener la siguiente estructura:
 
-El proyecto utiliza **Mosquitto** como broker MQTT para recibir las lecturas de los sensores.  
-El topic que se usa para los sensores es: `sensores/#`.
+```
+MQTT/
+├── docker-compose.yml
+└── mosquitto/
+    ├── config/
+    │   └── mosquitto.conf
+    ├── data/
+    └── log/
+```
+El contenido mínimo recomendado de `mosquitto.conf` es:
+```
+listener 1883
+allow_anonymous true
 
-### Levantar Mosquitto con Docker
+persistence true
+persistence_location /mosquitto/data/
+
+log_dest file /mosquitto/log/mosquitto.log
+```
+
+Para iniciar el broker, desde la carpeta `MQTT/` ejecutar:
 
 ```bash
-docker run -d --name mosquitto \
-  -p 1883:1883 -p 9001:9001 \
-  -v $(pwd)/mosquitto/config:/mosquitto/config \
-  -v $(pwd)/mosquitto/data:/mosquitto/data \
-  -v $(pwd)/mosquitto/log:/mosquitto/log \
-  eclipse-mosquitto:2.0
+docker compose up -d
 ```
+
+Esto levantará el broker exponiendo **1883** para MQTT TCP (usado por Python, microcontroladores, etc.). Para detener el broker, ejecutar:
+
+docker compose down
+
+Para probar que Mosquitto funciona, puedes suscribirte a un topic con:
+```
+docker exec -it mosquitto mosquitto_sub -h localhost -p 1883 -t sensores/test
+```
+Y publicar un mensaje con:
+```
+docker exec -it mosquitto mosquitto_pub -h localhost -p 1883 -t sensores/test -m "hola"
+``` 
+
 
 ### Formato JSON que debe recibir el broker: 
 
@@ -105,3 +132,8 @@ docker run -d --name mosquitto \
   ]
 }
 ```
+Para ejecutar manualmente una inyección al MQTT, correr desde la ruta **\MQTT** el siguiente comando (usando el **.venv** del proyecto):
+
+```Powershell
+py -c "import json, paho.mqtt.publish as publish; f = open('test.json','r'); payload = f.read(); f.close(); publish.single('sensores/test', payload, hostname='localhost', port=1883)"
+``` 
