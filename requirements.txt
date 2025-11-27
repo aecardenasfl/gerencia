@@ -3,6 +3,7 @@ redis
 types-redis
 uvicorn
 psycopg2-binary
+sqlalchemy
 python-dotenv
 email-validator
 bcrypt

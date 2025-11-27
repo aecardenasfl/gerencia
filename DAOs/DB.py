@@ -1,136 +1,77 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-"""Singleton de conexión a PostgreSQL.
 
-Provee un pool global (creado una vez) y helpers context managers para
-obtener conexiones y cursores. Lee configuración desde `POSTGRES_DSN`
-o variables `PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE`.
-"""
-from __future__ import annotations
-
-import os
-from pathlib import Path
-import threading
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
-from typing import Optional
 from config.config_loader import Config
+import logging
 
-import psycopg2
-from psycopg2 import sql
-from psycopg2.pool import SimpleConnectionPool
-from psycopg2.extras import RealDictCursor
+log = logging.getLogger(__name__)
 
+# --- 1. Configuración de la Conexión (URL) ---
+def get_db_url() -> str:
+    """Construye la URL de conexión a PostgreSQL."""
+    if Config.POSTGRES_DSN:
+        return Config.POSTGRES_DSN
+    
+    # Asume que si no hay DSN, todas las variables están presentes
+    return (
+        f"postgresql+psycopg2://{Config.PGUSER}:{Config.PGPASSWORD}@{Config.PGHOST}:"
+        f"{Config.PGPORT}/{Config.PGDATABASE}"
+    )
 
-# Pool singleton y lock para seguridad en entornos con hilos
-_pool: Optional[SimpleConnectionPool] = None
-_lock = threading.Lock()
-_schema: Optional[str] = None
+# --- 2. Base Declarativa y Engine (Singleton) ---
 
+# Base para todos los modelos de SQLAlchemy
+Base = declarative_base()
 
-def _create_pool(minconn: int = 1, maxconn: int = 5) -> SimpleConnectionPool:
-    # Primero, intentamos DSN si está disponible
-    dsn = Config.POSTGRES_DSN
+# El Engine gestiona el pool de conexiones
+# Usamos QueuePool por defecto para entornos web.
+_engine = None
 
-    global _schema
-    _schema = Config.PGSCHEMA or None
-
-    if dsn:
-        pool = SimpleConnectionPool(minconn, maxconn, dsn=dsn)
-    else:
-        required = (
-            Config.PGHOST,
-            Config.PGPORT,
-            Config.PGUSER,
-            Config.PGPASSWORD,
-            Config.PGDATABASE,
+def get_engine():
+    """Retorna el Engine singleton, creándolo si es necesario."""
+    global _engine
+    if _engine is None:
+        log.info("Creando SQLAlchemy Engine y Pool...")
+        url = get_db_url()
+        # El pool es gestionado internamente por el engine
+        _engine = create_engine(
+            url, 
+            poolclass=QueuePool, 
+            pool_size=5, 
+            max_overflow=10, 
+            echo=False # Cambiar a True para ver SQL de debug
         )
 
-        if any(v is None for v in required):
-            raise RuntimeError(
-                "Faltan variables de entorno en config/.env para la conexión a PostgreSQL"
-            )
+        # Configuración del search_path si se usa SCHEMA
+        if Config.PGSCHEMA:
+            _engine.execution_options = {
+                "schema_translate_map": {
+                    None: Config.PGSCHEMA, # Mapea el esquema por defecto al configurado
+                }
+            }
+        
+    return _engine
 
-        params = {
-            'host': Config.PGHOST,
-            'port': int(Config.PGPORT),
-            'user': Config.PGUSER,
-            'password': Config.PGPASSWORD,
-            'dbname': Config.PGDATABASE,
-        }
-        pool = SimpleConnectionPool(minconn, maxconn, **params)
+# --- 3. Fábrica de Sesiones ---
 
-    # Crear schema si aplica
-    if _schema:
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {};")
-                    .format(sql.Identifier(_schema))
-                )
-                conn.commit()
-        finally:
-            pool.putconn(conn)
+# Crea la fábrica de sesiones (lazily loaded)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
 
-    return pool
-
-
-def get_pool(minconn: int = 1, maxconn: int = 5) -> SimpleConnectionPool:
-    """Devuelve el pool singleton, creándolo si es necesario."""
-    global _pool
-    if _pool is None:
-        with _lock:
-            if _pool is None:
-                _pool = _create_pool(minconn, maxconn)
-    return _pool
-
-
-def close_pool() -> None:
-    """Cierra el pool y libera recursos."""
-    global _pool
-    with _lock:
-        if _pool is not None:
-            try:
-                _pool.closeall()
-            finally:
-                _pool = None
-
+# --- 4. Context Manager para Sesiones ---
 
 @contextmanager
-def get_conn():
-    """Context manager que entrega una conexión y la devuelve al pool."""
-    pool = get_pool()
-    conn = pool.getconn()
-    # Si se definió un schema en la configuración, ajustar el search_path
-    if _schema:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(sql.SQL("SET search_path TO {}, public;").format(sql.Identifier(_schema)))
-            # No es estrictamente necesario hacer commit para SET, pero no hace daño
-            conn.commit()
-        except Exception:
-            pool.putconn(conn)
-            raise
+def get_session():
+    """Provee una sesión de base de datos con manejo automático de cierre."""
+    session = SessionLocal()
     try:
-        yield conn
+        yield session
     finally:
-        pool.putconn(conn)
+        session.close()
 
+# --- 5. Helper para Crear Tablas (solo para desarrollo inicial) ---
 
-@contextmanager
-def get_cursor(dict_cursor: bool = False):
-    """Context manager que entrega un cursor (opcionalmente dict-like).
-
-    Uso:
-        with get_cursor(True) as cur:
-            cur.execute(...)  # devuelve diccionarios
-    """
-    with get_conn() as conn:
-        cur = conn.cursor(cursor_factory=RealDictCursor) if dict_cursor else conn.cursor()
-        try:
-            yield cur
-        finally:
-            try:
-                cur.close()
-            except Exception:
-                pass
+def create_all_tables():
+    """Crea todas las tablas definidas en Base si no existen."""
+    Base.metadata.create_all(bind=get_engine())

@@ -7,28 +7,20 @@ from Modelo.Pedido import Pedido, DetallePedido
 from DAOs.PedidoDAO import PedidoDAO
 from DAOs.ProductoDAO import ProductoDAO
 from DAOs.UsuarioDAO import UsuarioDAO
+from DAOs.DB import get_session
 
 
 class PedidoServicio:
-    """
-    Servicio de negocio para gestionar pedidos.
-    Realiza:
-      - Validación de usuario
-      - Validación de items y cantidades
-      - Verificación de stock
-      - Obtención de precio unitario si falta
-      - Cálculo de total del pedido
-      - Delegación de persistencia al PedidoDAO
-    """
+    def __init__(self):
+        self._session_cm = get_session()
+        self.db = self._session_cm.__enter__()
+        self.pedido_dao = PedidoDAO(self.db)
+        self.producto_dao = ProductoDAO(self.db)
+        self.usuario_dao = UsuarioDAO(self.db)
 
-    def __init__(self,
-                 pedido_dao: Optional[PedidoDAO] = None,
-                 producto_dao: Optional[ProductoDAO] = None,
-                 usuario_dao: Optional[UsuarioDAO] = None):
-
-        self.pedido_dao = pedido_dao or PedidoDAO()
-        self.producto_dao = producto_dao or ProductoDAO()
-        self.usuario_dao = usuario_dao or UsuarioDAO()
+    def __del__(self):
+        # cerrar la sesión al destruir el servicio
+        self._session_cm.__exit__(None, None, None)
 
     # ------------------------------------------------------------
     # VALIDACIONES INTERNAS DEL SERVICIO
@@ -85,12 +77,28 @@ class PedidoServicio:
         Crea un pedido aplicando todas las reglas de negocio.
         """
 
-        pedido = data if isinstance(data, Pedido) else Pedido(**data)
+        # Instancia Pedido
+        if isinstance(data, Pedido):
+            pedido = data
+        else:
+            # Extraer items y convertir a DetallePedido ORM
+            items_data = data.pop("items", [])
+            pedido = Pedido(**data)
+
+            if not items_data:
+                raise ValueError("El pedido debe contener al menos un item")  # Mantiene tu validación
+
+            pedido.items = [
+                DetallePedido(
+                    producto_id=item["producto_id"],
+                    cantidad=item["cantidad"]
+                )
+                for item in items_data
+            ]
 
         # Validar usuario
         if pedido.usuario_id is None:
             raise ValueError("El pedido debe incluir usuario_id")
-
         self._validar_usuario(pedido.usuario_id)
 
         # Validar items + completar info + verificar stock
@@ -98,7 +106,13 @@ class PedidoServicio:
 
         # Delegar creación al DAO (que hace transacción + afecta stock)
         creado = self.pedido_dao.create(pedido)
+
+        # Ajustar stock en productos
+        for item in creado.items:
+            self.producto_dao.adjust_stock(item.producto_id, -item.cantidad)
+
         return creado
+
 
     def obtener_pedido(self, pedido_id: int) -> Optional[Pedido]:
         return self.pedido_dao.get_by_id(pedido_id)

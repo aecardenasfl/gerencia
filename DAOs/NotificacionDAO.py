@@ -1,117 +1,105 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-"""DAO para la entidad `Notificacion`.
+"""Data Access Object (DAO) para el modelo Notificacion, utilizando SQLAlchemy."""
 
-Incluye lógica de inicialización segura para crear la tabla una sola vez.
-"""
 from typing import Optional, List
-from psycopg2.extras import RealDictCursor
+from sqlalchemy.orm import Session
+from sqlalchemy import select, update, delete
 from Modelo.Notificacion import Notificacion
-from DAOs.DB import get_conn
-
-_TABLA_NOTIFICACION_CREADA = False
-
 
 class NotificacionDAO:
+    """
+    Data Access Object (DAO) para el modelo Notificacion, utilizando SQLAlchemy.
+    """
+    def __init__(self, db: Session):
+        self.db = db
 
-    def __init__(self):
-        self.create_table_if_not_exists()
-
-    def create_table_if_not_exists(self) -> None:
-        """Crea la tabla 'notificaciones' si no existe. Solo se ejecuta una vez."""
-        global _TABLA_NOTIFICACION_CREADA
-        if _TABLA_NOTIFICACION_CREADA:
-            return
-
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS notificaciones (
-                        id SERIAL PRIMARY KEY,
-                        tipo TEXT NOT NULL,
-                        mensaje TEXT NOT NULL,
-                        producto_id INTEGER,
-                        destinatario_id INTEGER,
-                        leida BOOLEAN DEFAULT FALSE,
-                        nivel TEXT DEFAULT 'info',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-                conn.commit()
-                _TABLA_NOTIFICACION_CREADA = True
-
+    # ----------------------------
+    # CRUD
+    # ----------------------------
     def create(self, n: Notificacion) -> Notificacion:
-        """Crea una nueva notificación en la DB y devuelve el objeto con ID asignado."""
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO notificaciones (tipo, mensaje, producto_id, destinatario_id, leida, nivel)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (n.tipo, n.mensaje, n.producto_id, n.destinatario_id, bool(n.leida), n.nivel),
-                )
-                new_id = cur.fetchone()[0]
-                conn.commit()
-                n.id = new_id
-                return n
+        """Crea una nueva notificación."""
+        self.db.add(n)
+        self.db.commit()
+        self.db.refresh(n)
+        return n
 
     def get_by_id(self, notificacion_id: int) -> Optional[Notificacion]:
-        with get_conn() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT id, tipo, mensaje, producto_id, destinatario_id, leida, nivel "
-                    "FROM notificaciones WHERE id = %s", 
-                    (notificacion_id,)
-                )
-                row = cur.fetchone()
-                if not row:
-                    return None
-                return self._row_to_notificacion(row)
+        """Obtiene una notificación por ID."""
+        return self.db.get(Notificacion, notificacion_id)
 
     def list_all(self) -> List[Notificacion]:
-        with get_conn() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT id, tipo, mensaje, producto_id, destinatario_id, leida, nivel "
-                    "FROM notificaciones ORDER BY id"
-                )
-                rows = cur.fetchall()
-                return [self._row_to_notificacion(r) for r in rows]
+        """Lista todas las notificaciones ordenadas por ID."""
+        stmt = select(Notificacion).order_by(Notificacion.id)
+        return self.db.scalars(stmt).all()
+        
+    def list_by_user(self, usuario_id: int, solo_no_leidas: bool = False) -> List[Notificacion]:
+        """Lista las notificaciones para un usuario específico, con filtro opcional."""
+        stmt = (
+            select(Notificacion)
+            .where(Notificacion.destinatario_id == usuario_id)
+            .order_by(Notificacion.id.desc()) # Mostrar las más recientes primero
+        )
+        
+        if solo_no_leidas:
+            stmt = stmt.where(Notificacion.leida == False)
+        
+        return self.db.scalars(stmt).all()
 
     def update(self, n: Notificacion) -> Notificacion:
+        """Actualiza una notificación existente."""
         if n.id is None:
             raise ValueError("Notificacion.id es requerido para actualizar")
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE notificaciones
-                    SET tipo = %s, mensaje = %s, producto_id = %s, destinatario_id = %s,
-                        leida = %s, nivel = %s
-                    WHERE id = %s
-                    """,
-                    (n.tipo, n.mensaje, n.producto_id, n.destinatario_id, n.leida, n.nivel, n.id),
-                )
-                conn.commit()
-                return n
+        
+        # 1. Obtenemos la instancia para que SQLAlchemy pueda rastrear los cambios
+        notificacion_db = self.db.get(Notificacion, n.id)
+        
+        if not notificacion_db:
+            raise ValueError(f"Notificacion con id={n.id} no encontrada para actualizar")
 
-    def delete(self, notificacion_id: int) -> None:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM notificaciones WHERE id = %s", (notificacion_id,))
-                conn.commit()
+        # 2. Copiamos/actualizamos los atributos del objeto pasado
+        # Usamos el objeto de la base de datos para actualizar
+        notificacion_db.tipo = n.tipo
+        notificacion_db.mensaje = n.mensaje
+        notificacion_db.producto_id = n.producto_id
+        notificacion_db.destinatario_id = n.destinatario_id
+        notificacion_db.leida = n.leida
+        notificacion_db.nivel = n.nivel
+            
+        self.db.commit()
+        self.db.refresh(notificacion_db)
+        return notificacion_db
+    
+    def mark_as_read(self, notificacion_id: int) -> bool:
+        """
+        Marca una notificación específica como leída.
+        Retorna True si se actualizó al menos una fila, False si no existía.
+        """
+        stmt = update(Notificacion).where(Notificacion.id == notificacion_id).values(leida=True)
+        result = self.db.execute(stmt)
+        self.db.commit()
+        return result.rowcount > 0
 
-    def _row_to_notificacion(self, row: dict) -> Notificacion:
-        return Notificacion(
-            id=row.get('id'),
-            tipo=row.get('tipo') or "",
-            mensaje=row.get('mensaje') or "",
-            producto_id=row.get('producto_id'),
-            destinatario_id=row.get('destinatario_id'),
-            leida=row.get('leida', False),
-            nivel=row.get('nivel', 'info')
-        )
+
+    def mark_all_as_read_by_user(self, usuario_id: int) -> int:
+        stmt = update(Notificacion).where(Notificacion.destinatario_id == usuario_id).values(leida=True)
+        result = self.db.execute(stmt)
+        self.db.commit()
+        return result.rowcount
+
+
+    def delete(self, notificacion_id: int) -> bool:
+        """Elimina una notificación por ID."""
+        stmt = delete(Notificacion).where(Notificacion.id == notificacion_id)
+        result = self.db.execute(stmt)
+        self.db.commit()
+        return result.rowcount > 0
+
+    def delete_by_user(self, usuario_id: int) -> None:
+        """
+        Elimina todas las notificaciones de un usuario de forma masiva y eficiente.
+        """
+        stmt = delete(Notificacion).where(Notificacion.destinatario_id == usuario_id)
+        self.db.execute(stmt)
+        self.db.commit()
+        # No necesitamos retornar nada, el proceso es la eliminación.

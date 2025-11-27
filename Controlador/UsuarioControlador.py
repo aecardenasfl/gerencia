@@ -1,123 +1,95 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """Controlador (Router) de FastAPI para operaciones sobre Usuario.
-
 Implementa el CRUD completo, incluyendo el método PATCH para actualizaciones parciales.
 """
-from typing import List
-
+from typing import List, Optional, Generator
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, EmailStr
-
-# Importar el modelo y el servicio (Asegúrate de que estas rutas sean correctas)
 from Modelo.Usuario import Usuario
+from DAOs.DB import get_session
 from Servicios.UsuarioServicio import UsuarioServicio
+from DAOs.UsuarioDAO import UsuarioDAO
+from sqlalchemy.orm import Session
 
-
-# --- Esquemas de Datos para Solicitudes Específicas ---
-
-# Esquema para Actualizaciones Parciales (PATCH)
-# Define todos los campos como opcionales para permitir actualizaciones parciales.
 class UsuarioActualizarParcial(BaseModel):
-    # El ID no se incluye porque se toma de la URL
-    nombre: str | None = Field(default=None, description="Nuevo nombre del usuario")
-    email: str | None = Field(default=None, description="Nuevo email del usuario (debe ser único)")
-    rol: str | None = Field(default=None, description="Nuevo rol del usuario ('user' o 'admin')")
-    activo: bool | None = Field(default=None, description="Estado de actividad del usuario")
+    nombre: Optional[str] = Field(default=None, description="Nuevo nombre del usuario")
+    email: Optional[EmailStr] = Field(default=None, description="Nuevo email del usuario (debe ser único)")
+    rol: Optional[str] = Field(default=None, description="Nuevo rol del usuario ('user' o 'admin')")
+    activo: Optional[bool] = Field(default=None, description="Estado de actividad del usuario")
 
 class UsuarioCambiarPassword(BaseModel):
     nueva_password: str = Field(..., min_length=6, description="Nueva contraseña del usuario")
 
 class UsuarioCrear(BaseModel):
     nombre: str
-    email: str
+    email: EmailStr
     rol: str
     activo: bool = True
     password: str
-class UsuarioRespuesta(BaseModel):
-    id: int
+
+class UsuarioActualizarCompleto(BaseModel):
     nombre: str
-    email: str
+    email: EmailStr
     rol: str
     activo: bool
 
-    class Config:
-        orm_mode = True
+class UsuarioRespuesta(BaseModel):
+    id: int
+    nombre: str
+    email: EmailStr
+    rol: str
+    activo: bool
+
+    model_config = {"from_attributes": True}
 
 class UsuarioLogin(BaseModel):
     email: EmailStr
     password: str
 
-# --- Instancia del Router y Dependencia del Servicio ---
-
+# --- Router ---
 router = APIRouter(
     prefix="/usuarios",
     tags=["usuarios"],
 )
 
+# --- Dependencias ---
 
-# Dependencia para obtener la instancia del servicio
-def obtener_servicio_usuario() -> UsuarioServicio:
-    """Retorna una instancia del servicio de usuario."""
-    return UsuarioServicio()
+def get_db() -> Generator[Session, None, None]:
+    """Dependencia de sesión de DB, manejada por FastAPI."""
+    with get_session() as db:
+        yield db
 
+def get_usuario_servicio(db: Session = Depends(get_db)) -> UsuarioServicio:
+    """Crea UsuarioServicio con el DAO inyectado automáticamente."""
+    dao = UsuarioDAO(db)
+    return UsuarioServicio(dao)
 
-# --- Endpoints CRUD ---
+# --- Endpoints CRUD y login ---
 
 @router.post("/", response_model=UsuarioRespuesta)
 def crear_usuario(
     usuario: UsuarioCrear,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+    servicio: UsuarioServicio = Depends(get_usuario_servicio),
 ):
+    datos = usuario.model_dump()
+    password = datos.pop("password")
     try:
-        # convertir datos excepto el password
-        datos = usuario.dict()
-        password = datos.pop("password")
-
-        usuario_creado = servicio.crear_usuario(datos, password)
-        return usuario_creado
-
+        return servicio.crear_usuario(datos, password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al crear usuario: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error al crear usuario: {e}")
 
-
-@router.get(
-    "/",
-    response_model=List[Usuario], 
-    summary="Listar todos los usuarios",
-)
-def listar_usuarios(
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
-):
-    """
-    Retorna la lista de todos los usuarios.
-    """
+@router.get("/", response_model=List[UsuarioRespuesta])
+def listar_usuarios(servicio: UsuarioServicio = Depends(get_usuario_servicio)):
     return servicio.listar_usuarios()
 
-@router.post(
-    "/login",
-    summary="Autenticar usuario",
-    status_code=status.HTTP_200_OK
-)
-def login(
-    credenciales: UsuarioLogin,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
-):
-    """
-    Verifica email y contraseña.
-    """
+@router.post("/login", status_code=status.HTTP_200_OK)
+def login(credenciales: UsuarioLogin, servicio: UsuarioServicio = Depends(get_usuario_servicio)):
     if not servicio.verificar_contraseña(credenciales.email, credenciales.password):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-
-    # Obtener usuario para retornar información útil
     usuario = servicio.dao.get_by_email(credenciales.email)
-
     return {
         "mensaje": "Login exitoso",
         "usuario": {
@@ -128,117 +100,58 @@ def login(
         }
     }
 
-@router.get(
-    "/{usuario_id}",
-    response_model=Usuario,
-    summary="Obtener un usuario por ID",
-)
-def obtener_usuario(
-    usuario_id: int,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
-):
-    """
-    Retorna los detalles de un usuario específico por su ID.
-    """
+@router.get("/{usuario_id}", response_model=UsuarioRespuesta)
+def obtener_usuario(usuario_id: int, servicio: UsuarioServicio = Depends(get_usuario_servicio)):
     usuario = servicio.obtener_usuario(usuario_id)
     if usuario is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Usuario con id={usuario_id} no encontrado",
-        )
+        raise HTTPException(status_code=404, detail=f"Usuario con id={usuario_id} no encontrado")
     return usuario
 
-
-@router.put(
-    "/{usuario_id}",
-    response_model=Usuario,
-    summary="Actualizar completamente un usuario (Reemplazo total)",
-)
+@router.put("/{usuario_id}", response_model=UsuarioRespuesta)
 def actualizar_usuario(
     usuario_id: int,
-    datos_usuario: Usuario, # El cuerpo DEBE contener todos los campos
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+    datos_usuario: UsuarioActualizarCompleto,
+    servicio: UsuarioServicio = Depends(get_usuario_servicio),
 ):
-    """
-    Actualiza **todos** los campos de un usuario existente.
-    """
     try:
-        # El servicio ya maneja la validación y el error 404
-        return servicio.actualizar_usuario(usuario_id, datos_usuario)
+        return servicio.actualizar_usuario(usuario_id, datos_usuario.model_dump())
     except ValueError as e:
         detail = str(e)
         if f"id={usuario_id} no existe" in detail:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
-        # Errores de validación como email duplicado o rol inválido
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+            raise HTTPException(status_code=404, detail=detail)
+        raise HTTPException(status_code=400, detail=detail)
 
-
-@router.patch(
-    "/{usuario_id}",
-    response_model=Usuario,
-    summary="Actualizar parcialmente un usuario",
-)
+@router.patch("/{usuario_id}", response_model=UsuarioRespuesta)
 def actualizar_parcialmente_usuario(
     usuario_id: int,
-    datos_parciales: UsuarioActualizarParcial, # Usa el esquema opcional
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+    datos_parciales: UsuarioActualizarParcial,
+    servicio: UsuarioServicio = Depends(get_usuario_servicio),
 ):
-    """
-    Actualiza **parcialmente** (sólo los campos provistos) un usuario existente.
-    """
-    # Convierte Pydantic a diccionario, omitiendo los campos que NO fueron enviados.
-    data_dict = datos_parciales.model_dump(exclude_unset=True) 
-
+    data_dict = datos_parciales.model_dump(exclude_unset=True)
     if not data_dict:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Se debe proporcionar al menos un campo para actualizar",
-        )
-
+        raise HTTPException(status_code=400, detail="Se debe proporcionar al menos un campo")
     try:
-        # El servicio (actualizar_usuario) usa el diccionario para hacer el merge.
         return servicio.actualizar_usuario(usuario_id, data_dict)
     except ValueError as e:
         detail = str(e)
         if f"id={usuario_id} no existe" in detail:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
-        # Errores de validación (ej. email duplicado)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+            raise HTTPException(status_code=404, detail=detail)
+        raise HTTPException(status_code=400, detail=detail)
 
-@router.patch(
-    "/{usuario_id}/password",
-    summary="Actualizar contraseña de un usuario",
-    status_code=status.HTTP_200_OK,
-)
+@router.patch("/{usuario_id}/password", status_code=status.HTTP_200_OK)
 def cambiar_password(
     usuario_id: int,
     datos: UsuarioCambiarPassword,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
+    servicio: UsuarioServicio = Depends(get_usuario_servicio),
 ):
-    """
-    Actualiza la contraseña de un usuario específico.
-    """
     try:
-        usuario_actualizado = servicio.actualizar_contraseña(usuario_id, datos.nueva_password)
+        servicio.actualizar_contraseña(usuario_id, datos.nueva_password)
         return {"mensaje": f"Contraseña de usuario {usuario_id} actualizada correctamente"}
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al actualizar contraseña: {e}")
-        
-@router.delete(
-    "/{usuario_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar un usuario",
-)
-def eliminar_usuario(
-    usuario_id: int,
-    servicio: UsuarioServicio = Depends(obtener_servicio_usuario),
-):
-    """
-    Elimina un usuario por su ID.
-    """
-    # En un sistema real, primero verificarías si el usuario existe para devolver 404, 
-    # pero el DAO simplemente ejecuta DELETE. Lo dejamos así por simplicidad.
+        raise HTTPException(status_code=500, detail=f"Error al actualizar contraseña: {e}")
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_usuario(usuario_id: int, servicio: UsuarioServicio = Depends(get_usuario_servicio)):
     servicio.eliminar_usuario(usuario_id)
-    return
