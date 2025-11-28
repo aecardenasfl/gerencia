@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
             mqtt_handler.stop()
             print("MQTTHandler detenido.")
 
-# Crear tablas al iniciar la aplicación
+# Crear tablas al iniciar la aplicación y sus respectivas acciones 
 create_all_tables()
 
 app = FastAPI(lifespan=lifespan)
