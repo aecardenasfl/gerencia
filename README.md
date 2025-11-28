@@ -137,3 +137,4 @@ Para ejecutar manualmente una inyección al MQTT, correr desde la ruta **\MQTT**
 ```Powershell
 py -c "import json, paho.mqtt.publish as publish; f = open('test.json','r'); payload = f.read(); f.close(); publish.single('sensores/test', payload, hostname='localhost', port=1883)"
 ``` 
+Actualización del README para prueba de commit.
